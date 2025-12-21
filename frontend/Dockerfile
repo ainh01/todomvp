@@ -1,4 +1,4 @@
-# Frontend Dockerfile - Multi-stage build (Fly.io Compatible)
+# Frontend Dockerfile - Multi-stage build
 # Stage 1: Build the React application
 FROM node:18-alpine AS builder
 
@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm ci --only=production=false
 
 # Copy source code
 COPY . .
@@ -26,20 +26,11 @@ WORKDIR /app
 # Install serve globally
 RUN npm install -g serve
 
-# Use existing node user (already exists in node:alpine image)
-# or create user with different UID/GID
-RUN if ! getent group appgroup > /dev/null 2>&1; then \
-        addgroup -g 1001 appgroup; \
-    fi && \
-    if ! id -u appuser > /dev/null 2>&1; then \
-        adduser -D -u 1001 -G appgroup appuser; \
-    fi
+# Copy built files from builder stage (node user already exists with uid/gid 1000)
+COPY --from=builder --chown=node:node /app/dist ./dist
 
-# Copy built files from builder stage
-COPY --from=builder --chown=appuser:appgroup /app/dist ./dist
-
-# Switch to non-root user
-USER appuser
+# Switch to non-root user (use existing node user)
+USER node
 
 # Expose frontend port
 EXPOSE 3000
