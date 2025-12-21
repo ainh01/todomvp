@@ -1,0 +1,14 @@
+/* Global Reset and Base Styles */
+
+html {
+  font-size: 16px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
+#root {
+  min-height: 100vh;
+}

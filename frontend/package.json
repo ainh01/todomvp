@@ -13,10 +13,10 @@
     "axios": "^1.6.2",  
     "date-fns": "^2.30.0"  
   },  
-  "devDependencies": {  
-    "@types/react": "^18.2.43",  
-    "@types/react-dom": "^18.2.17",  
-    "@vitejs/plugin-react": "^4.2.1",  
-    "vite": "^5.0.8"  
-  }  
-}  
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.3"
+  }
+}

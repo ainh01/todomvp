@@ -3,7 +3,7 @@ FastAPI routes for todo application.
 Implements all CRUD endpoints with authentication and SSE support.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from app.models.task import (
     CreateTaskRequest,
@@ -17,9 +17,11 @@ from app.models.task import (
 from app.services.task_service import TaskService
 from app.services.sse_service import sse_manager
 from app.database.redis_client import get_redis
-from app.auth.jwt_handler import get_current_user
-from upstash_redis import Redis
+from app.auth.jwt_handler import get_current_user, get_current_user_sse
+from upstash_redis.asyncio import Redis
 import logging
+from jose import jwt  
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +211,7 @@ async def delete_tasks(
     description="Server-Sent Events endpoint for receiving live task updates"
 )
 async def sse_stream(
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user_sse) 
 ):
     """
     **Real-time updates via Server-Sent Events**

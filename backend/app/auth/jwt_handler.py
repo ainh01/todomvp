@@ -3,7 +3,7 @@ JWT token verification and user authentication.
 Extracts user_id from JWT claims for request authorization.
 """
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from app.config import get_settings
@@ -47,6 +47,13 @@ class JWTHandler:
                 algorithms=[self.algorithm]
             )
             return payload
+        except jwt.ExpiredSignatureError:
+            logger.warning("JWT token has expired")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has expired",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         except JWTError as e:
             logger.warning(f"JWT verification failed: {e}")
             raise HTTPException(
@@ -129,3 +136,46 @@ async def get_current_user_optional(
         return await get_current_user(credentials)
     except HTTPException:
         return None
+
+
+async def get_current_user_sse(
+    token: Optional[str] = Query(None, description="JWT token for SSE authentication")
+) -> str:
+    """
+    FastAPI dependency for SSE endpoints that accept token via query parameter.
+    
+    EventSource API doesn't support custom headers, so token must be passed in URL.
+    This is a necessary compromise for browser-based SSE connections.
+    
+    Usage in route:
+        @app.get("/stream")
+        async def sse_stream(user_id: str = Depends(get_current_user_sse)):
+            ...
+    
+    Args:
+        token: JWT token from query parameter
+        
+    Returns:
+        str: Authenticated user ID
+        
+    Raises:
+        HTTPException: If authentication fails or token is missing
+        
+    Security Note:
+        Always use HTTPS in production as token is visible in URL.
+        Consider implementing token rotation or short-lived SSE tokens.
+    """
+    if not token:
+        logger.warning("SSE connection attempted without token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication token. Use ?token=YOUR_JWT_TOKEN",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Reuse existing token verification logic
+    payload = jwt_handler.verify_token(token)
+    user_id = jwt_handler.extract_user_id(payload)
+    
+    logger.info(f"SSE connection authenticated for user: {user_id}")
+    return user_id

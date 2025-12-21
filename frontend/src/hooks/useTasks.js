@@ -43,6 +43,19 @@ export const useTasks = () => {
   }, [fetchTasks]);
 
   /**
+   * ✅ Helper: Check if task exists in tree (prevents duplicates)
+   */
+  const taskExistsInTree = useCallback((taskList, taskId) => {
+    for (const task of taskList) {
+      if (task.id === taskId) return true;
+      if (task.subtasks && task.subtasks.length > 0) {
+        if (taskExistsInTree(task.subtasks, taskId)) return true;
+      }
+    }
+    return false;
+  }, []);
+
+  /**
    * Helper function to recursively find and update task in tree
    */
   const updateTaskInTree = useCallback((taskList, taskId, updateFn) => {
@@ -82,12 +95,10 @@ export const useTasks = () => {
    * Helper function to add task to tree at correct location
    */
   const addTaskToTree = useCallback((taskList, newTask) => {
-    // Root level task
     if (newTask.parent_id === "0") {
       return [newTask, ...taskList];
     }
 
-    // Subtask - find parent and add
     return taskList.map(task => {
       if (task.id === newTask.parent_id) {
         return {
@@ -95,7 +106,7 @@ export const useTasks = () => {
           subtasks: [...(task.subtasks || []), newTask]
         };
       }
-      if (task.subtasks && task.subtasks.length > 0) {
+      if (task.subtasks?.length) {
         return {
           ...task,
           subtasks: addTaskToTree(task.subtasks, newTask)
@@ -106,18 +117,33 @@ export const useTasks = () => {
   }, []);
 
   /**
-   * SSE Event Handlers
+   * ✅ SSE Event Handler - Task Created
    */
   const handleTaskCreated = useCallback((newTask) => {
-    setTasks(prevTasks => addTaskToTree(prevTasks, newTask));
-  }, [addTaskToTree]);
+    setTasks(prevTasks => {
+      // ✅ Check if task already exists (prevent duplicates)
+      if (taskExistsInTree(prevTasks, newTask.id)) {
+        console.log('⚠️ Task already exists, skipping duplicate:', newTask.id);
+        return prevTasks;
+      }
+      
+      console.log('✅ Adding new task from SSE:', newTask.id);
+      return addTaskToTree(prevTasks, newTask);
+    });
+  }, [addTaskToTree, taskExistsInTree]);
 
+  /**
+   * ✅ SSE Event Handler - Task Updated
+   */
   const handleTaskUpdated = useCallback((updatedTask) => {
     setTasks(prevTasks => 
       updateTaskInTree(prevTasks, updatedTask.id, () => updatedTask)
     );
   }, [updateTaskInTree]);
 
+  /**
+   * ✅ SSE Event Handler - Task Deleted
+   */
   const handleTaskDeleted = useCallback((taskIds) => {
     setTasks(prevTasks => removeTaskFromTree(prevTasks, taskIds));
   }, [removeTaskFromTree]);
@@ -131,39 +157,40 @@ export const useTasks = () => {
   );
 
   /**
-   * Create new task with optimistic update
+   * ✅ Create new task - NO OPTIMISTIC UPDATE
+   * Let SSE handle the UI update for reliability
    */
   const handleCreateTask = useCallback(async (taskData) => {
     try {
       const newTask = await createTask(taskData);
-      // SSE will handle the update, but we do optimistic update for immediate feedback
-      setTasks(prevTasks => addTaskToTree(prevTasks, newTask));
+      // ✅ Don't update state here - let SSE handle it
+      console.log('✅ Task created, waiting for SSE event:', newTask.id);
       return newTask;
     } catch (err) {
       console.error('Failed to create task:', err);
       throw err;
     }
-  }, [addTaskToTree]);
+  }, []);
 
   /**
-   * Update existing task with optimistic update
+   * ✅ Update existing task - NO OPTIMISTIC UPDATE
+   * Let SSE handle the UI update for reliability
    */
   const handleUpdateTask = useCallback(async (taskId, updateData) => {
     try {
       const updatedTask = await updateTask({ task_id: taskId, ...updateData });
-      // SSE will handle the update, but we do optimistic update for immediate feedback
-      setTasks(prevTasks => 
-        updateTaskInTree(prevTasks, taskId, () => updatedTask)
-      );
+      // ✅ Don't update state here - let SSE handle it
+      console.log('✅ Task updated, waiting for SSE event:', taskId);
       return updatedTask;
     } catch (err) {
       console.error('Failed to update task:', err);
       throw err;
     }
-  }, [updateTaskInTree]);
+  }, []);
 
   /**
-   * Toggle task completion status
+   * ✅ Toggle task completion status - NO OPTIMISTIC UPDATE
+   * Let SSE handle the UI update for reliability
    */
   const handleToggleComplete = useCallback(async (taskId, currentStatus) => {
     try {
@@ -171,7 +198,8 @@ export const useTasks = () => {
         task_id: taskId,
         completed: !currentStatus
       });
-      // SSE will handle the actual update
+      // ✅ Don't update state here - let SSE handle it
+      console.log('✅ Task toggled, waiting for SSE event:', taskId);
     } catch (err) {
       console.error('Failed to toggle task completion:', err);
       throw err;
@@ -179,19 +207,20 @@ export const useTasks = () => {
   }, []);
 
   /**
-   * Delete tasks with optimistic update
+   * ✅ Delete tasks - NO OPTIMISTIC UPDATE
+   * Let SSE handle the UI update for reliability
    */
   const handleDeleteTasks = useCallback(async (taskIds) => {
     try {
       const result = await deleteTasks(taskIds);
-      // SSE will handle the update, but we do optimistic update for immediate feedback
-      setTasks(prevTasks => removeTaskFromTree(prevTasks, taskIds));
+      // ✅ Don't update state here - let SSE handle it
+      console.log('✅ Tasks deleted, waiting for SSE event:', taskIds);
       return result;
     } catch (err) {
       console.error('Failed to delete tasks:', err);
       throw err;
     }
-  }, [removeTaskFromTree]);
+  }, []);
 
   return {
     tasks,
