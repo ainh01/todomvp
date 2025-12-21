@@ -245,4 +245,3 @@ For issues or questions, please open a GitHub issue.
 ---  
 
 **Made with ❤️ using FastAPI and React**  
-```  
