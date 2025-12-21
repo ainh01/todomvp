@@ -26,10 +26,11 @@ WORKDIR /app
 # Install serve globally
 RUN npm install -g serve
 
-# Copy built files from builder stage (node user already exists with uid/gid 1000)
+# Copy built files from builder stage with proper ownership
+# Use the existing 'node' user that comes with node:18-alpine
 COPY --from=builder --chown=node:node /app/dist ./dist
 
-# Switch to non-root user (use existing node user)
+# Switch to non-root user
 USER node
 
 # Expose frontend port
