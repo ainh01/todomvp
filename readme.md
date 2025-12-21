@@ -101,8 +101,11 @@ token = jwt.encode(
 print(token)  
 ```  
 
-Add this token to `frontend/.env` as `VITE_JWT_TOKEN`  
+Add this token to `frontend/.env` as `VITE_JWT_TOKEN`, if you want to random one:
 
+```cmd
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
 ## 📚 Documentation  
 
 - **[Backend Documentation](./backend/README.md)** - API details, Redis schema, setup  
