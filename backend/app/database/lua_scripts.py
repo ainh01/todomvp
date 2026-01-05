@@ -9,7 +9,6 @@ local task_key = 'task:' .. task_id
 -- ARGV[5] = iso_timestamp (string for storage)  
 -- ARGV[6] = unix_timestamp (number for sorting)  
 
--- Create task hash with all fields  
 redis.call('HSET', task_key,  
     'id', task_id,  
     'user_id', ARGV[1],  
@@ -22,12 +21,10 @@ redis.call('HSET', task_key,
     'updated_at', ARGV[5]  
 )  
 
--- Add to user's active tasks sorted set (scored by Unix timestamp)  
 local user_tasks_key = 'user:' .. ARGV[1] .. ':tasks'  
 local unix_timestamp = tonumber(ARGV[6])  
 redis.call('ZADD', user_tasks_key, unix_timestamp, task_id)  
 
--- If this is a subtask (parent_id != "0"), add to parent's subtasks  
 if ARGV[4] ~= "0" then  
     local parent_subtasks_key = 'task:' .. ARGV[4] .. ':subtasks'  
     redis.call('ZADD', parent_subtasks_key, unix_timestamp, task_id)  
@@ -54,26 +51,20 @@ local user_completed_key = 'user:' .. user_id .. ':tasks:completed'
 local unix_timestamp = tonumber(ARGV[3])  
 
 if current_completed_at == '' then  
-    -- Mark as completed  
     redis.call('HSET', task_key, 'completed_at', ARGV[2])  
     redis.call('HSET', task_key, 'updated_at', ARGV[2])  
     
-    -- Move from active to completed sorted set  
     redis.call('ZREM', user_active_key, ARGV[1])  
     redis.call('ZADD', user_completed_key, unix_timestamp, ARGV[1])  
     
     return 'completed'  
 else  
-    -- Mark as incomplete  
     redis.call('HSET', task_key, 'completed_at', '')  
     redis.call('HSET', task_key, 'updated_at', ARGV[2])  
     
-    -- Move from completed to active sorted set  
     redis.call('ZREM', user_completed_key, ARGV[1])  
     local created_at = redis.call('HGET', task_key, 'created_at')  
     
-    -- Parse created_at if it's ISO format, otherwise use current timestamp  
-    -- For new tasks created with this fix, we'll use the unix timestamp  
     redis.call('ZADD', user_active_key, unix_timestamp, ARGV[1])  
     
     return 'incomplete'  
@@ -89,17 +80,14 @@ local function soft_delete_recursive(task_id, iso_deleted_at)
         return 0  
     end  
     
-    -- Check if already deleted  
     local current_deleted_at = redis.call('HGET', task_key, 'deleted_at')  
     if current_deleted_at ~= '' then  
         return 0  
     end  
     
-    -- Set deleted_at timestamp (ISO format for storage)  
     redis.call('HSET', task_key, 'deleted_at', iso_deleted_at)  
     redis.call('HSET', task_key, 'updated_at', iso_deleted_at)  
     
-    -- Remove from user's active and completed sorted sets  
     local user_active_key = 'user:' .. user_id .. ':tasks'  
     local user_completed_key = 'user:' .. user_id .. ':tasks:completed'  
     redis.call('ZREM', user_active_key, task_id)  
@@ -107,7 +95,6 @@ local function soft_delete_recursive(task_id, iso_deleted_at)
     
     local deleted_count = 1  
     
-    -- Get all subtasks and recursively delete  
     local subtasks_key = 'task:' .. task_id .. ':subtasks'  
     local subtasks = redis.call('ZRANGE', subtasks_key, 0, -1)  
     
@@ -134,11 +121,9 @@ local user_id = ARGV[1]
 local user_active_key = 'user:' .. user_id .. ':tasks'  
 local user_completed_key = 'user:' .. user_id .. ':tasks:completed'  
 
--- Get all active and completed task IDs  
 local active_ids = redis.call('ZRANGE', user_active_key, 0, -1)  
 local completed_ids = redis.call('ZRANGE', user_completed_key, 0, -1)  
 
--- Combine all task IDs  
 local all_task_ids = {}  
 for _, id in ipairs(active_ids) do  
     table.insert(all_task_ids, id)  
@@ -147,7 +132,6 @@ for _, id in ipairs(completed_ids) do
     table.insert(all_task_ids, id)  
 end  
 
--- Fetch all task data  
 local tasks = {}  
 for _, task_id in ipairs(all_task_ids) do  
     local task_key = 'task:' .. task_id  

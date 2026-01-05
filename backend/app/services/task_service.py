@@ -1,8 +1,3 @@
-"""
-Business logic layer for task operations.
-Handles all CRUD operations and coordinates Redis interactions.
-"""
-
 from upstash_redis.asyncio import Redis
 from app.database.lua_scripts import (
     CREATE_TASK_SCRIPT,
@@ -20,20 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 class TaskService:
-    """
-    Service layer for task management operations.
-    Implements business logic and Redis data access.
-    """
     
     def __init__(self, redis: Redis):
         self.redis = redis
     
     def _get_iso_timestamp(self) -> str:
-        """Get current UTC timestamp in ISO 8601 format for storage."""
         return datetime.now(timezone.utc).isoformat()
     
     def _get_unix_timestamp(self) -> float:
-        """Get current Unix timestamp (seconds since epoch) for sorting."""
         return time.time()
     
     async def create_task(
@@ -41,29 +30,14 @@ class TaskService:
         user_id: str,
         task_data: CreateTaskRequest
     ) -> Task:
-        """
-        Create a new task (root or subtask).
-        
-        Args:
-            user_id: ID of the user creating the task
-            task_data: Task creation request data
-            
-        Returns:
-            Task: Newly created task with generated ID
-            
-        Raises:
-            Exception: If parent task doesn't exist (for subtasks)
-        """
         iso_timestamp = self._get_iso_timestamp()
         unix_timestamp = self._get_unix_timestamp()
         
-        # Validate parent task exists if not root
         if task_data.parent_id != "0":
             parent_exists = await self.redis.exists(f"task:{task_data.parent_id}")
             if not parent_exists:
                 raise ValueError(f"Parent task {task_data.parent_id} does not exist")
         
-        # Execute atomic creation script
         try:
             task_id = await self.redis.eval(
                 CREATE_TASK_SCRIPT,
@@ -78,9 +52,8 @@ class TaskService:
                 ]
             )
             
-            logger.info(f"✅ Created task {task_id} for user {user_id}")
+            logger.info(f"Created task {task_id} for user {user_id}")
             
-            # Return created task
             return Task(
                 id=str(task_id),
                 user_id=user_id,
@@ -100,43 +73,28 @@ class TaskService:
 
 
     async def get_user_tasks(self, user_id: str) -> List[Task]:
-        """
-        Retrieve all tasks for a user with hierarchical structure.
-        
-        Args:
-            user_id: ID of the user
-            
-        Returns:
-            List[Task]: Root-level tasks with nested subtasks
-        """
         try:
-            # Execute batch retrieval script
             raw_tasks = await self.redis.eval(
                 GET_USER_TASKS_SCRIPT,
                 keys=[],
                 args=[user_id]
             )
             
-            # 🔍 DEBUG: Log what Redis returned
             logger.info(f"🔍 DEBUG: raw_tasks type = {type(raw_tasks)}")
             logger.info(f"🔍 DEBUG: raw_tasks length = {len(raw_tasks) if raw_tasks else 0}")
-            if raw_tasks and len(raw_tasks) <= 50:  # Only log if small
+            if raw_tasks and len(raw_tasks) <= 50: 
                 logger.info(f"🔍 DEBUG: raw_tasks content = {raw_tasks}")
             
             if not raw_tasks:
                 logger.info(f"📥 No tasks found for user {user_id}")
                 return []
             
-            # Validate raw_tasks is a list
             if not isinstance(raw_tasks, list):
                 logger.error(f"❌ Unexpected Redis response type: {type(raw_tasks)}")
                 return []
             
-            # ✅ FIX: Check if raw_tasks is a nested array (common Redis response format)
-            # Sometimes Redis Lua returns [[task1_data], [task2_data], ...]
             if len(raw_tasks) > 0 and isinstance(raw_tasks[0], list):
                 logger.info("🔍 Detected nested array structure, flattening...")
-                # Flatten nested structure
                 flattened = []
                 for task_array in raw_tasks:
                     if isinstance(task_array, list):
@@ -144,11 +102,7 @@ class TaskService:
                 raw_tasks = flattened
                 logger.info(f"🔍 Flattened to {len(raw_tasks)} elements")
             
-            # Parse raw Redis response into Task objects
             tasks_dict: Dict[str, Task] = {}
-            
-            # Expected format: [key1, val1, key2, val2, ...]
-            # 9 fields per task: id, user_id, title, description, parent_id, created_at, completed_at, deleted_at, updated_at
             
             i = 0
             task_count = 0
@@ -156,12 +110,10 @@ class TaskService:
             while i < len(raw_tasks):
                 task_data = {}
                 
-                # ✅ FIX: Collect key-value pairs for one task (9 fields = 18 elements)
                 fields_collected = 0
                 
-                while fields_collected < 9 and i + 1 < len(raw_tasks):  # ✅ CORRECTED BOUNDS CHECK
+                while fields_collected < 9 and i + 1 < len(raw_tasks):
                     try:
-                        # Decode key and value
                         key = raw_tasks[i].decode('utf-8') if isinstance(raw_tasks[i], bytes) else str(raw_tasks[i])
                         val = raw_tasks[i + 1].decode('utf-8') if isinstance(raw_tasks[i + 1], bytes) else str(raw_tasks[i + 1])
                         
@@ -171,13 +123,11 @@ class TaskService:
                         
                     except (AttributeError, UnicodeDecodeError) as e:
                         logger.error(f"❌ Error parsing field at index {i}: {e}")
-                        i += 2  # Skip this pair
+                        i += 2 
                         continue
                 
-                # Create task if we have valid data
                 if 'id' in task_data and task_data['id']:
                     try:
-                        # Skip deleted tasks
                         if task_data.get('deleted_at') and task_data['deleted_at'] != '':
                             logger.debug(f"Skipping deleted task {task_data['id']}")
                             continue
@@ -195,7 +145,6 @@ class TaskService:
             
             logger.info(f"📊 Parsed {task_count} valid tasks from {len(raw_tasks)} elements")
             
-            # Build hierarchy: attach subtasks to parents
             root_tasks = []
             
             for task in tasks_dict.values():
@@ -204,11 +153,9 @@ class TaskService:
                 elif task.parent_id in tasks_dict:
                     tasks_dict[task.parent_id].subtasks.append(task)
                 else:
-                    # Orphaned task (parent was deleted), treat as root
                     logger.warning(f"⚠️ Task {task.id} has missing parent {task.parent_id}, treating as root")
                     root_tasks.append(task)
             
-            # Recursively sort subtasks by created_at
             def sort_subtasks(task: Task):
                 task.subtasks.sort(key=lambda t: t.created_at)
                 for subtask in task.subtasks:
@@ -232,24 +179,10 @@ class TaskService:
         user_id: str,
         update_data: UpdateTaskRequest
     ) -> Task:
-        """
-        Update task details or toggle completion status.
-        
-        Args:
-            user_id: ID of the user (for authorization)
-            update_data: Update request data
-            
-        Returns:
-            Task: Updated task
-            
-        Raises:
-            ValueError: If task doesn't exist or unauthorized
-        """
         task_key = f"task:{update_data.task_id}"
         iso_timestamp = self._get_iso_timestamp()
         unix_timestamp = self._get_unix_timestamp()
         
-        # Verify task exists and belongs to user
         task_user_id = await self.redis.hget(task_key, "user_id")
         if not task_user_id:
             raise ValueError(f"Task {update_data.task_id} not found")
@@ -257,7 +190,6 @@ class TaskService:
         if task_user_id != user_id:
             raise ValueError("Unauthorized: Task belongs to different user")
         
-        # Handle completion toggle
         if update_data.completed is not None:
             result = await self.redis.eval(
                 TOGGLE_COMPLETE_SCRIPT,
@@ -266,7 +198,6 @@ class TaskService:
             )
             logger.info(f"✅ Task {update_data.task_id} marked as {result}")
         
-        # Handle field updates
         update_fields = {}
         if update_data.title is not None:
             update_fields['title'] = update_data.title
@@ -278,7 +209,6 @@ class TaskService:
             await self.redis.hset(task_key, update_fields)
             logger.info(f"✅ Updated task {update_data.task_id} fields")
         
-        # Fetch and return updated task
         task_data = await self.redis.hgetall(task_key)
         return Task(**task_data, subtasks=[])
     
@@ -287,22 +217,8 @@ class TaskService:
         user_id: str,
         task_ids: List[str]
     ) -> int:
-        """
-        Soft delete tasks with cascade to subtasks.
-        
-        Args:
-            user_id: ID of the user (for authorization)
-            task_ids: List of task IDs to delete
-            
-        Returns:
-            int: Total number of tasks deleted (including subtasks)
-            
-        Raises:
-            ValueError: If any task doesn't exist or unauthorized
-        """
         iso_timestamp = self._get_iso_timestamp()
         
-        # Verify all tasks belong to user
         for task_id in task_ids:
             task_user_id = await self.redis.hget(f"task:{task_id}", "user_id")
             if not task_user_id:
@@ -310,7 +226,6 @@ class TaskService:
             if task_user_id != user_id:
                 raise ValueError(f"Unauthorized: Task {task_id} belongs to different user")
         
-        # Execute atomic soft delete with cascade
         try:
             deleted_count = await self.redis.eval(
                 SOFT_DELETE_SCRIPT,

@@ -1,4 +1,3 @@
-# CHANGE 1: Import from .asyncio
 from upstash_redis.asyncio import Redis 
 from app.config import get_settings
 from typing import Optional
@@ -16,7 +15,6 @@ class RedisClient:
         if cls._instance is None:
             settings = get_settings()
             try:
-                # CHANGE 2: Initialization remains the same, but creates an Async client
                 cls._instance = Redis(
                     url=settings.upstash_redis_rest_url,
                     token=settings.upstash_redis_rest_token
@@ -29,7 +27,7 @@ class RedisClient:
         return cls._instance
     
     @classmethod
-    async def close(cls): # CHANGE 3: Close is often async in async drivers
+    async def close(cls): 
         if cls._instance:
             await cls._instance.close()
             cls._instance = None

@@ -1,8 +1,3 @@
-"""
-FastAPI routes for todo application.
-Implements all CRUD endpoints with authentication and SSE support.
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from app.models.task import (
@@ -43,21 +38,10 @@ async def create_task(
     user_id: str = Depends(get_current_user),
     redis: Redis = Depends(get_redis)
 ):
-    """
-    **Create a new task**
-    
-    - **title**: Task title (required, 1-500 characters)
-    - **description**: Task description (optional, max 5000 characters)
-    - **parent_id**: Parent task ID for subtasks, "0" for root tasks
-    
-    Returns the created task with generated ID.
-    Broadcasts creation event to all user's active SSE connections.
-    """
     try:
         service = TaskService(redis)
         task = await service.create_task(user_id, task_data)
         
-        # Broadcast real-time update
         await sse_manager.broadcast_task_created(
             user_id,
             task.model_dump()
@@ -83,16 +67,6 @@ async def get_tasks(
     user_id: str = Depends(get_current_user),
     redis: Redis = Depends(get_redis)
 ):
-    """
-    **Retrieve all tasks for the authenticated user**
-    
-    Returns tasks in hierarchical structure:
-    - Root-level tasks contain nested subtasks
-    - Sorted by creation date (newest first)
-    - Excludes soft-deleted tasks
-    
-    Optimized for performance using Redis pipelines to avoid N+1 queries.
-    """
     try:
         service = TaskService(redis)
         tasks = await service.get_user_tasks(user_id)
@@ -123,22 +97,10 @@ async def update_task(
     user_id: str = Depends(get_current_user),
     redis: Redis = Depends(get_redis)
 ):
-    """
-    **Update an existing task**
-    
-    - **task_id**: ID of task to update (required)
-    - **title**: New title (optional)
-    - **description**: New description (optional)
-    - **completed**: Toggle completion status (optional boolean)
-    
-    At least one update field must be provided.
-    Broadcasts update event to all user's active SSE connections.
-    """
     try:
         service = TaskService(redis)
         task = await service.update_task(user_id, update_data)
         
-        # Broadcast real-time update
         await sse_manager.broadcast_task_updated(
             user_id,
             task.model_dump()
@@ -170,18 +132,6 @@ async def delete_tasks(
     user_id: str = Depends(get_current_user),
     redis: Redis = Depends(get_redis)
 ):
-    """
-    **Soft delete tasks**
-    
-    - **task_ids**: List of task IDs to delete
-    
-    Performs soft delete (sets deleted_at timestamp) with cascade:
-    - All subtasks of deleted tasks are also soft-deleted
-    - Tasks remain in database but excluded from queries
-    - Returns total count of deleted tasks including subtasks
-    
-    Broadcasts deletion event to all user's active SSE connections.
-    """
     try:
         service = TaskService(redis)
         deleted_count = await service.delete_tasks(user_id, delete_data.task_ids)
@@ -213,35 +163,12 @@ async def delete_tasks(
 async def sse_stream(
     user_id: str = Depends(get_current_user_sse) 
 ):
-    """
-    **Real-time updates via Server-Sent Events**
-    
-    Establishes a persistent connection for receiving live updates:
-    - Task creation events
-    - Task update events
-    - Task deletion events
-    - Heartbeat messages every 30 seconds
-    
-    Connection is user-specific; only receives updates for authenticated user's tasks.
-    
-    **Client Implementation:**
-    ```javascript
-    const eventSource = new EventSource('/stream', {
-        headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN' }
-    });
-    
-    eventSource.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        console.log('Received update:', data);
-    };
-    ```
-    """
     return StreamingResponse(
         sse_manager.subscribe(user_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Disable nginx buffering
+            "X-Accel-Buffering": "no" 
         }
     )
